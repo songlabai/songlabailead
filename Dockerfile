@@ -30,15 +30,18 @@ RUN pip install --no-cache-dir \
     pandas \
     python-dotenv
 
-# Switch back to n8n user
-USER node
+# Stay as root and find n8n path
+RUN which n8n || find / -name "n8n" -type f 2>/dev/null | head -1
 
-# Create directories for custom workflows and data
-RUN mkdir -p /home/node/.n8n/custom
+# Create directories for custom workflows and data  
+RUN mkdir -p /home/node/.n8n/custom && chown -R node:node /home/node/.n8n
 
 # Copy workflow files (if they exist)
 COPY --chown=node:node n8n-workflows/ /home/node/.n8n/workflows/
 COPY --chown=node:node email-templates/ /home/node/.n8n/email-templates/
+
+# Switch back to node user but preserve PATH
+USER node
 
 # Expose the port
 EXPOSE 8080
@@ -47,5 +50,5 @@ EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
   CMD curl -f http://localhost:8080/healthz || exit 1
 
-# Start n8n
-CMD ["n8n", "start"]
+# Start n8n with full path
+CMD ["/usr/local/bin/n8n", "start"]
