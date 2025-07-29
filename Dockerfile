@@ -5,7 +5,7 @@ FROM n8nio/n8n:latest
 
 # Set environment variables
 ENV N8N_HOST=0.0.0.0
-ENV N8N_PORT=5678
+ENV N8N_PORT=8080
 ENV NODE_ENV=production
 
 # Install additional dependencies for lead generation workflows
@@ -41,11 +41,11 @@ COPY --chown=node:node n8n-workflows/ /home/node/.n8n/workflows/
 COPY --chown=node:node email-templates/ /home/node/.n8n/email-templates/
 
 # Expose the port
-EXPOSE 5678
+EXPOSE 8080
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-  CMD curl -f http://localhost:5678/healthz || exit 1
+  CMD curl -f http://localhost:8080/healthz || exit 1
 
 # Start n8n
 CMD ["n8n", "start"]
