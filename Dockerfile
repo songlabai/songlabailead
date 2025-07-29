@@ -3,10 +3,13 @@
 
 FROM n8nio/n8n:latest
 
-# Set environment variables
+# Set environment variables for Cloud Run
+ENV PORT=8080
 ENV N8N_HOST=0.0.0.0
 ENV N8N_PORT=8080
 ENV NODE_ENV=production
+ENV N8N_DISABLE_UI=false
+ENV N8N_BASIC_AUTH_ACTIVE=false
 
 # Install additional dependencies for lead generation workflows
 USER root
@@ -50,5 +53,5 @@ EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
   CMD curl -f http://localhost:8080/healthz || exit 1
 
-# Start n8n using node directly
-CMD ["node", "/usr/local/lib/node_modules/n8n/bin/n8n", "start"]
+# Start n8n directly (simplified)
+CMD ["n8n", "start"]
