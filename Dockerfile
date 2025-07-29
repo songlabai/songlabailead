@@ -16,10 +16,15 @@ RUN apk add --no-cache \
     curl \
     postgresql-client \
     python3 \
-    py3-pip
+    py3-pip \
+    py3-virtualenv
 
-# Install Python packages for data processing
-RUN pip3 install \
+# Create and activate virtual environment for Python packages
+RUN python3 -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+# Install Python packages in virtual environment
+RUN pip install --no-cache-dir \
     requests \
     beautifulsoup4 \
     pandas \
