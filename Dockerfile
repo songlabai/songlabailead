@@ -50,5 +50,5 @@ EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
   CMD curl -f http://localhost:8080/healthz || exit 1
 
-# Start n8n with full path
-CMD ["/usr/local/bin/n8n", "start"]
+# Start n8n using node directly
+CMD ["node", "/usr/local/lib/node_modules/n8n/bin/n8n", "start"]
