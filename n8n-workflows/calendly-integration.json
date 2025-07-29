@@ -1,0 +1,488 @@
+{
+  "name": "Calendly Integration - Meeting Tracking",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 15
+            }
+          ]
+        }
+      },
+      "id": "1a2b3c4d-5e6f-7a8b-9c0d-1e2f3a4b5c6d",
+      "name": "15-Minute Calendly Poll",
+      "type": "n8n-nodes-base.cron",
+      "typeVersion": 1,
+      "position": [240, 300],
+      "cronExpression": "*/15 * * * *"
+    },
+    {
+      "parameters": {
+        "url": "https://api.calendly.com/scheduled_events",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "options": {
+          "queryParameters": {
+            "user": "={{ $env.CALENDLY_USER_URI }}",
+            "min_start_time": "={{ new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString() }}",
+            "max_start_time": "={{ new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString() }}",
+            "status": "active",
+            "sort": "start_time:desc"
+          },
+          "timeout": 30000,
+          "headers": {
+            "Authorization": "Bearer {{ $env.CALENDLY_API_KEY }}",
+            "Content-Type": "application/json"
+          }
+        }
+      },
+      "id": "2b3c4d5e-6f7a-8b9c-0d1e-2f3a4b5c6d7e",
+      "name": "Get Calendly Events",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// SongLabAI - Calendly Events Processing\n// Process Calendly events and identify new bookings\n\nconst input = $input.first();\nconst newEvents = [];\n\nif (!input.json.collection || !Array.isArray(input.json.collection)) {\n  console.log('No events found in Calendly response');\n  return [];\n}\n\nconst events = input.json.collection;\nconsole.log(`Processing ${events.length} Calendly events`);\n\nfor (const event of events) {\n  try {\n    // Extract event details\n    const eventData = {\n      calendly_event_id: event.uri.split('/').pop(),\n      calendly_event_uri: event.uri,\n      event_name: event.name,\n      start_time: event.start_time,\n      end_time: event.end_time,\n      duration_minutes: Math.round((new Date(event.end_time) - new Date(event.start_time)) / (1000 * 60)),\n      timezone: event.timezone || 'America/Los_Angeles',\n      location: event.location ? (event.location.location || event.location.join_url || 'Virtual') : 'TBD',\n      event_status: event.status || 'scheduled',\n      \n      // Event type detection\n      meeting_type: detectMeetingType(event.name),\n      \n      // Metadata\n      created_at: event.created_at,\n      updated_at: event.updated_at,\n      raw_event: event\n    };\n    \n    newEvents.push(eventData);\n    \n  } catch (error) {\n    console.error('Error processing Calendly event:', error);\n  }\n}\n\n// Helper function to detect meeting type\nfunction detectMeetingType(eventName) {\n  const name = (eventName || '').toLowerCase();\n  \n  if (name.includes('auto') || name.includes('car') || name.includes('dealer')) {\n    return 'automotive_consultation';\n  } else if (name.includes('restaurant') || name.includes('food')) {\n    return 'restaurant_consultation';\n  } else if (name.includes('legal') || name.includes('law')) {\n    return 'legal_consultation';\n  } else if (name.includes('medical') || name.includes('health') || name.includes('doctor')) {\n    return 'medical_consultation';\n  } else if (name.includes('real estate')) {\n    return 'real_estate_consultation';\n  } else {\n    return 'general_consultation';\n  }\n}\n\nconsole.log(`Found ${newEvents.length} Calendly events to process`);\n\nreturn newEvents.map(event => ({ json: event }));"
+      },
+      "id": "3c4d5e6f-7a8b-9c0d-1e2f-3a4b5c6d7e8f",
+      "name": "Process Calendly Events",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "url": "https://api.calendly.com/scheduled_events/{{ $json.calendly_event_id }}/invitees",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "options": {
+          "timeout": 30000,
+          "headers": {
+            "Authorization": "Bearer {{ $env.CALENDLY_API_KEY }}",
+            "Content-Type": "application/json"
+          }
+        }
+      },
+      "id": "4d5e6f7a-8b9c-0d1e-2f3a-4b5c6d7e8f9a",
+      "name": "Get Event Invitees",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// SongLabAI - Merge Event and Invitee Data\n// Combine Calendly event data with invitee information\n\nconst eventData = $input.first().json;\nconst inviteeResponse = $input.last().json;\n\n// Extract invitee information\nlet inviteeData = null;\nif (inviteeResponse.collection && inviteeResponse.collection.length > 0) {\n  const invitee = inviteeResponse.collection[0]; // Get first invitee\n  \n  inviteeData = {\n    attendee_name: invitee.name,\n    attendee_email: invitee.email,\n    attendee_phone: null, // Not always available in free tier\n    attendee_notes: null,\n    invitee_uri: invitee.uri,\n    payment_status: invitee.payment ? invitee.payment.status : null,\n    timezone: invitee.timezone\n  };\n  \n  // Try to extract phone from questions_and_answers if available\n  if (invitee.questions_and_answers) {\n    for (const qa of invitee.questions_and_answers) {\n      if (qa.question.toLowerCase().includes('phone')) {\n        inviteeData.attendee_phone = qa.answer;\n      }\n      if (qa.question.toLowerCase().includes('note') || qa.question.toLowerCase().includes('comment')) {\n        inviteeData.attendee_notes = qa.answer;\n      }\n    }\n  }\n}\n\n// Merge event and invitee data\nconst completeEventData = {\n  ...eventData,\n  ...inviteeData,\n  \n  // Add additional processing\n  booking_source: 'email_link', // Default assumption\n  needs_prospect_matching: true\n};\n\nreturn [{ json: completeEventData }];"
+      },
+      "id": "5e6f7a8b-9c0d-1e2f-3a4b-5c6d7e8f9a0b",
+      "name": "Merge Event Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1120, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Find matching prospect by email\nSELECT \n  id as prospect_id,\n  name,\n  business_name,\n  prospect_type,\n  lead_score,\n  email\nFROM prospects \nWHERE email = '{{ $json.attendee_email }}'\n  AND is_active = TRUE \n  AND deleted_at IS NULL\nLIMIT 1;",
+        "options": {}
+      },
+      "id": "6f7a8b9c-0d1e-2f3a-4b5c-6d7e8f9a0b1c",
+      "name": "Find Matching Prospect",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [1340, 300],
+      "credentials": {
+        "postgres": {
+          "id": "postgres_main",
+          "name": "PostgreSQL - SongLabAI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "condition1",
+              "leftValue": "={{ $json.prospect_id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "isNotEmpty"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "7a8b9c0d-1e2f-3a4b-5c6d-7e8f9a0b1c2d",
+      "name": "Check If Prospect Found",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1560, 300]
+    },
+    {
+      "parameters": {
+        "operation": "insert",
+        "table": "calendly_events",
+        "columns": "prospect_id,calendly_event_id,calendly_event_uri,event_name,start_time,end_time,duration_minutes,timezone,location,meeting_type,attendee_name,attendee_email,attendee_phone,attendee_notes,event_status,booking_source",
+        "additionalFields": {
+          "mode": "upsert",
+          "upsertColumns": "calendly_event_id"
+        }
+      },
+      "id": "8b9c0d1e-2f3a-4b5c-6d7e-8f9a0b1c2d3e",
+      "name": "Save Calendly Event",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [1780, 200],
+      "credentials": {
+        "postgres": {
+          "id": "postgres_main",
+          "name": "PostgreSQL - SongLabAI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "table": "prospects",
+        "updateKey": "id",
+        "columns": "meeting_booked,meeting_date,pipeline_stage",
+        "additionalFields": {}
+      },
+      "id": "9c0d1e2f-3a4b-5c6d-7e8f-9a0b1c2d3e4f",
+      "name": "Update Prospect Status",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [1780, 400],
+      "credentials": {
+        "postgres": {
+          "id": "postgres_main",
+          "name": "PostgreSQL - SongLabAI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "insert",
+        "table": "calendly_events",
+        "columns": "calendly_event_id,calendly_event_uri,event_name,start_time,end_time,duration_minutes,timezone,location,meeting_type,attendee_name,attendee_email,attendee_phone,attendee_notes,event_status,booking_source",
+        "additionalFields": {
+          "mode": "upsert",
+          "upsertColumns": "calendly_event_id"
+        }
+      },
+      "id": "0d1e2f3a-4b5c-6d7e-8f9a-0b1c2d3e4f5a",
+      "name": "Save Event Without Prospect",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [1780, 600],
+      "credentials": {
+        "postgres": {
+          "id": "postgres_main",
+          "name": "PostgreSQL - SongLabAI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SLACK_WEBHOOK_URL }}",
+        "options": {
+          "body": {
+            "type": "json",
+            "json": "{\n  \"text\": \"📅 SongLabAI New Meeting Booked!\",\n  \"blocks\": [\n    {\n      \"type\": \"section\",\n      \"text\": {\n        \"type\": \"mrkdwn\",\n        \"text\": \"*New Meeting Scheduled* 📅\\n\\n**Event:** {{ $json.event_name }}\\n**Attendee:** {{ $json.attendee_name }}\\n**Email:** {{ $json.attendee_email }}\\n**Date:** {{ new Date($json.start_time).toLocaleDateString() }} at {{ new Date($json.start_time).toLocaleTimeString() }}\\n**Duration:** {{ $json.duration_minutes }} minutes\\n**Type:** {{ $json.meeting_type }}\\n\\n{{ $json.prospect_id ? '✅ Matched with existing prospect' : '⚠️ New attendee - no matching prospect found' }}\"\n      }\n    },\n    {\n      \"type\": \"actions\",\n      \"elements\": [\n        {\n          \"type\": \"button\",\n          \"text\": {\n            \"type\": \"plain_text\",\n            \"text\": \"View in Calendly\"\n          },\n          \"url\": \"{{ $json.calendly_event_uri }}\"\n        }\n      ]\n    }\n  ]\n}"
+          }
+        }
+      },
+      "id": "1e2f3a4b-5c6d-7e8f-9a0b-1c2d3e4f5a6b",
+      "name": "Send Meeting Notification",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [2000, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// SongLabAI - Meeting Confirmation Email\n// Generate meeting confirmation email content\n\nconst eventData = $input.first().json;\n\n// Determine email template based on meeting type\nconst templates = {\n  automotive_consultation: {\n    subject: `🚗 Confirmation: Your Custom Jingle Consultation - ${new Date(eventData.start_time).toLocaleDateString()}`,\n    content: `\n      <p>Hi ${eventData.attendee_name},</p>\n      \n      <p>Great news! Your automotive jingle consultation is confirmed for:</p>\n      \n      <div style=\"background: #f8f9fa; padding: 20px; border-radius: 8px; margin: 20px 0;\">\n        <strong>📅 Date:</strong> ${new Date(eventData.start_time).toLocaleDateString()}<br>\n        <strong>🕐 Time:</strong> ${new Date(eventData.start_time).toLocaleTimeString()}<br>\n        <strong>⏱️ Duration:</strong> ${eventData.duration_minutes} minutes<br>\n        <strong>📍 Location:</strong> ${eventData.location}\n      </div>\n      \n      <p><strong>What to expect:</strong></p>\n      <ul>\n        <li>Discussion about your dealership's brand and marketing goals</li>\n        <li>Review of successful automotive jingle examples</li>\n        <li>Custom jingle concept development</li>\n        <li>FREE 15-second sample creation (delivered within 48 hours)</li>\n      </ul>\n      \n      <p>Please have ready: Your current marketing materials and any brand guidelines.</p>\n      \n      <p>Looking forward to creating something amazing for your dealership!</p>\n    `\n  },\n  restaurant_consultation: {\n    subject: `🍽️ Confirmation: Your Restaurant Jingle Consultation - ${new Date(eventData.start_time).toLocaleDateString()}`,\n    content: `\n      <p>Hi ${eventData.attendee_name},</p>\n      \n      <p>Fantastic! Your restaurant jingle consultation is confirmed:</p>\n      \n      <div style=\"background: #fff8f5; padding: 20px; border-radius: 8px; margin: 20px 0;\">\n        <strong>📅 Date:</strong> ${new Date(eventData.start_time).toLocaleDateString()}<br>\n        <strong>🕐 Time:</strong> ${new Date(eventData.start_time).toLocaleTimeString()}<br>\n        <strong>⏱️ Duration:</strong> ${eventData.duration_minutes} minutes<br>\n        <strong>📍 Location:</strong> ${eventData.location}\n      </div>\n      \n      <p><strong>We'll cover:</strong></p>\n      <ul>\n        <li>Your restaurant's personality and target customers</li>\n        <li>Successful restaurant jingle case studies</li>\n        <li>Musical style that fits your brand</li>\n        <li>FREE 30-second sample creation (delivered within 48 hours)</li>\n      </ul>\n      \n      <p>Please bring: Your menu, any current marketing materials, and your vision for your restaurant's sound.</p>\n      \n      <p>Can't wait to help make your restaurant unforgettable!</p>\n    `\n  },\n  legal_consultation: {\n    subject: `⚖️ Confirmation: Your Legal Practice Audio Branding Consultation - ${new Date(eventData.start_time).toLocaleDateString()}`,\n    content: `\n      <p>Dear ${eventData.attendee_name},</p>\n      \n      <p>Thank you for scheduling your professional audio branding consultation:</p>\n      \n      <div style=\"background: #f8f9fa; padding: 20px; border-radius: 8px; margin: 20px 0;\">\n        <strong>📅 Date:</strong> ${new Date(eventData.start_time).toLocaleDateString()}<br>\n        <strong>🕐 Time:</strong> ${new Date(eventData.start_time).toLocaleTimeString()}<br>\n        <strong>⏱️ Duration:</strong> ${eventData.duration_minutes} minutes<br>\n        <strong>📍 Location:</strong> ${eventData.location}\n      </div>\n      \n      <p><strong>Consultation agenda:</strong></p>\n      <ul>\n        <li>Analysis of your practice's current marketing approach</li>\n        <li>Professional audio branding strategy discussion</li>\n        <li>Review of legal industry best practices</li>\n        <li>Complimentary 20-second professional sample creation</li>\n      </ul>\n      \n      <p>Please prepare: Current marketing materials and target client demographics.</p>\n      \n      <p>I look forward to enhancing your firm's professional presence.</p>\n    `\n  },\n  general_consultation: {\n    subject: `🎵 Confirmation: Your Custom Jingle Consultation - ${new Date(eventData.start_time).toLocaleDateString()}`,\n    content: `\n      <p>Hi ${eventData.attendee_name},</p>\n      \n      <p>Perfect! Your custom jingle consultation is all set:</p>\n      \n      <div style=\"background: #f8f9fa; padding: 20px; border-radius: 8px; margin: 20px 0;\">\n        <strong>📅 Date:</strong> ${new Date(eventData.start_time).toLocaleDateString()}<br>\n        <strong>🕐 Time:</strong> ${new Date(eventData.start_time).toLocaleTimeString()}<br>\n        <strong>⏱️ Duration:</strong> ${eventData.duration_minutes} minutes<br>\n        <strong>📍 Location:</strong> ${eventData.location}\n      </div>\n      \n      <p><strong>What we'll discuss:</strong></p>\n      <ul>\n        <li>Your business goals and target audience</li>\n        <li>Musical style preferences and brand personality</li>\n        <li>Usage scenarios (radio, TV, digital, etc.)</li>\n        <li>FREE custom sample creation</li>\n      </ul>\n      \n      <p>Come prepared with your brand materials and creative vision!</p>\n    `\n  }\n};\n\nconst template = templates[eventData.meeting_type] || templates.general_consultation;\n\nconst confirmationEmail = {\n  prospect_id: eventData.prospect_id,\n  email_type: 'meeting_confirmation',\n  subject_line: template.subject,\n  email_body: `\n    ${template.content}\n    \n    <p>Best regards,<br>\n    <strong>${process.env.SENDER_NAME || 'Alex Johnson'}</strong><br>\n    SongLabAI - Custom Jingles<br>\n    📧 ${process.env.SMTP_FROM_EMAIL}<br>\n    📱 ${process.env.BUSINESS_PHONE}</p>\n    \n    <hr>\n    <p><small>Need to reschedule? <a href=\"${eventData.calendly_event_uri}\">Click here</a></small></p>\n  `,\n  from_email: process.env.SMTP_FROM_EMAIL,\n  from_name: `${process.env.SENDER_NAME || 'Alex Johnson'} - SongLabAI`,\n  to_email: eventData.attendee_email,\n  to_name: eventData.attendee_name,\n  template_used: 'meeting_confirmation',\n  calendly_event_id: eventData.calendly_event_id\n};\n\nreturn [{ json: confirmationEmail }];"
+      },
+      "id": "2f3a4b5c-6d7e-8f9a-0b1c-2d3e4f5a6b7c",
+      "name": "Generate Confirmation Email",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2000, 500]
+    },
+    {
+      "parameters": {
+        "fromEmail": "={{ $json.from_email }}",
+        "fromName": "={{ $json.from_name }}",
+        "toEmail": "={{ $json.to_email }}",
+        "subject": "={{ $json.subject_line }}",
+        "html": "={{ $json.email_body }}",
+        "options": {
+          "replyTo": "={{ $json.from_email }}",
+          "allowUnauthorizedCerts": false
+        }
+      },
+      "id": "3a4b5c6d-7e8f-9a0b-1c2d-3e4f5a6b7c8d",
+      "name": "Send Confirmation Email",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2,
+      "position": [2220, 500],
+      "credentials": {
+        "smtp": {
+          "id": "smtp_main",
+          "name": "SMTP - SongLabAI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "insert",
+        "table": "email_campaigns",
+        "columns": "prospect_id,email_type,subject_line,email_body,template_used,from_email,from_name,to_email,delivery_status",
+        "additionalFields": {}
+      },
+      "id": "4b5c6d7e-8f9a-0b1c-2d3e-4f5a6b7c8d9e",
+      "name": "Log Confirmation Email",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [2220, 700],
+      "credentials": {
+        "postgres": {
+          "id": "postgres_main",
+          "name": "PostgreSQL - SongLabAI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// SongLabAI - Calendly Error Handler\n// Handle errors in Calendly integration workflow\n\nconst error = $input.first();\nconst timestamp = new Date();\n\n// Create error summary\nconst errorSummary = {\n  workflow_name: 'Calendly Integration',\n  status: 'error',\n  start_time: timestamp.toISOString(),\n  end_time: timestamp.toISOString(),\n  records_processed: 0,\n  records_success: 0,\n  error_message: error.error?.message || 'Calendly API error occurred',\n  error_stack: error.error?.stack || 'No stack trace available',\n  context_data: {\n    node_name: error.node?.name || 'Unknown node',\n    error_type: error.error?.name || 'Calendly API Error',\n    execution_id: $executionId,\n    timestamp: timestamp.toISOString()\n  }\n};\n\nconsole.error('❌ Calendly Integration Failed:', errorSummary);\n\nreturn [{ json: errorSummary }];"
+      },
+      "id": "5c6d7e8f-9a0b-1c2d-3e4f-5a6b7c8d9e0f",
+      "name": "Calendly Error Handler",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [680, 520]
+    },
+    {
+      "parameters": {
+        "operation": "insert",
+        "table": "workflow_logs",
+        "columns": "workflow_name,status,start_time,end_time,records_processed,records_success,error_message,error_stack,context_data"
+      },
+      "id": "6d7e8f9a-0b1c-2d3e-4f5a-6b7c8d9e0f1a",
+      "name": "Log Calendly Error",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [900, 520],
+      "credentials": {
+        "postgres": {
+          "id": "postgres_main",
+          "name": "PostgreSQL - SongLabAI"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "15-Minute Calendly Poll": {
+      "main": [
+        [
+          {
+            "node": "Get Calendly Events",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Calendly Events": {
+      "main": [
+        [
+          {
+            "node": "Process Calendly Events",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process Calendly Events": {
+      "main": [
+        [
+          {
+            "node": "Get Event Invitees",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Event Invitees": {
+      "main": [
+        [
+          {
+            "node": "Merge Event Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge Event Data": {
+      "main": [
+        [
+          {
+            "node": "Find Matching Prospect",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find Matching Prospect": {
+      "main": [
+        [
+          {
+            "node": "Check If Prospect Found",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check If Prospect Found": {
+      "main": [
+        [
+          {
+            "node": "Save Calendly Event",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Update Prospect Status",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Save Event Without Prospect",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Calendly Event": {
+      "main": [
+        [
+          {
+            "node": "Send Meeting Notification",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Generate Confirmation Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Event Without Prospect": {
+      "main": [
+        [
+          {
+            "node": "Send Meeting Notification",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Generate Confirmation Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Confirmation Email": {
+      "main": [
+        [
+          {
+            "node": "Send Confirmation Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Confirmation Email": {
+      "main": [
+        [
+          {
+            "node": "Log Confirmation Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Calendly Error Handler": {
+      "main": [
+        [
+          {
+            "node": "Log Calendly Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": {
+      "onError": "continueRegularExecution"
+    }
+  },
+  "versionId": "1",
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "id": "calendly-integration",
+  "tags": [
+    {
+      "createdAt": "2025-07-28T23:55:00.000Z",
+      "updatedAt": "2025-07-28T23:55:00.000Z",
+      "id": "calendly",
+      "name": "calendly"
+    },
+    {
+      "createdAt": "2025-07-28T23:55:00.000Z",
+      "updatedAt": "2025-07-28T23:55:00.000Z",
+      "id": "meeting-tracking",
+      "name": "meeting-tracking"
+    },
+    {
+      "createdAt": "2025-07-28T23:55:00.000Z",
+      "updatedAt": "2025-07-28T23:55:00.000Z",
+      "id": "notifications",
+      "name": "notifications"
+    }
+  ]
+}

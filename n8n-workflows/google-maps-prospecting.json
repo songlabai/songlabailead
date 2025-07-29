@@ -1,0 +1,345 @@
+{
+  "name": "Google Maps Business Prospecting",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 24
+            }
+          ]
+        }
+      },
+      "id": "7f9b1c6e-8a2d-4f3b-9c1e-2d3f4a5b6c7d",
+      "name": "Daily Trigger",
+      "type": "n8n-nodes-base.cron",
+      "typeVersion": 1,
+      "position": [240, 300],
+      "cronExpression": "0 9 * * *"
+    },
+    {
+      "parameters": {
+        "jsCode": "// SongLabAI - Google Maps Business Prospecting Configuration\n// This node sets up the search parameters for California business discovery\n\nconst targetCities = [\n  'Los Angeles', 'San Francisco', 'San Diego', 'Sacramento', 'Fresno',\n  'Long Beach', 'Oakland', 'Bakersfield', 'Anaheim', 'Santa Ana',\n  'Riverside', 'Stockton', 'Irvine', 'Chula Vista', 'Fremont',\n  'San Bernardino', 'Modesto', 'Fontana', 'Oxnard', 'Moreno Valley',\n  'Glendale', 'Huntington Beach', 'Santa Clarita', 'Garden Grove', 'Oceanside'\n];\n\nconst businessTypes = [\n  { type: 'car_dealer', keywords: 'car dealer', priority: 35 },\n  { type: 'restaurant', keywords: 'restaurant', priority: 30 },\n  { type: 'lawyer', keywords: 'lawyer', priority: 28 },\n  { type: 'doctor', keywords: 'doctor', priority: 25 },\n  { type: 'dentist', keywords: 'dentist', priority: 25 },\n  { type: 'real_estate_agency', keywords: 'real estate', priority: 25 },\n  { type: 'accounting', keywords: 'accountant', priority: 22 },\n  { type: 'insurance_agency', keywords: 'insurance', priority: 20 }\n];\n\nconst premiumAreas = [\n  'beverly hills', 'santa monica', 'palo alto', 'carmel',\n  'sausalito', 'napa', 'marin county', 'silicon valley',\n  'la jolla', 'manhattan beach', 'newport beach', 'carmel-by-the-sea'\n];\n\n// Create search combinations (limit to stay within API quotas)\nconst searches = [];\nconst dailyLimit = parseInt(process.env.DAILY_GOOGLE_REQUESTS_LIMIT) || 300;\nlet searchCount = 0;\n\n// Prioritize premium areas and high-value business types\nfor (const businessType of businessTypes) {\n  for (const city of targetCities.slice(0, 10)) { // Focus on top 10 cities\n    if (searchCount >= dailyLimit) break;\n    \n    const isPremiumArea = premiumAreas.some(area => \n      city.toLowerCase().includes(area) || \n      area.includes(city.toLowerCase())\n    );\n    \n    searches.push({\n      query: `${businessType.keywords} in ${city}, California`,\n      city: city,\n      businessType: businessType.type,\n      priority: businessType.priority + (isPremiumArea ? 20 : 0),\n      isPremiumArea: isPremiumArea\n    });\n    \n    searchCount++;\n  }\n  if (searchCount >= dailyLimit) break;\n}\n\n// Sort by priority and return top searches\nsearches.sort((a, b) => b.priority - a.priority);\n\nreturn searches.slice(0, Math.min(dailyLimit / 10, 30)).map((search, index) => ({\n  json: {\n    searchIndex: index,\n    query: search.query,\n    city: search.city,\n    businessType: search.businessType,\n    priority: search.priority,\n    isPremiumArea: search.isPremiumArea,\n    timestamp: new Date().toISOString()\n  }\n}));"
+      },
+      "id": "8b2c3d4e-5f6a-7b8c-9d0e-1f2a3b4c5d6e",
+      "name": "Setup Search Parameters",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpQueryAuth",
+        "url": "https://maps.googleapis.com/maps/api/place/textsearch/json",
+        "options": {
+          "queryParameters": {
+            "query": "={{ $json.query }}",
+            "key": "={{ $env.GOOGLE_MAPS_API_KEY }}",
+            "fields": "place_id,name,formatted_address,geometry,rating,user_ratings_total,price_level,business_status,types,formatted_phone_number,website,opening_hours",
+            "region": "us"
+          },
+          "timeout": 30000
+        }
+      },
+      "id": "9c3d4e5f-6a7b-8c9d-0e1f-2a3b4c5d6e7f",
+      "name": "Google Places Search",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// SongLabAI - Google Maps Results Processing\n// Process and filter Google Places results for qualified prospects\n\nconst items = $input.all();\nconst qualifiedProspects = [];\n\n// Premium California areas for higher scoring\nconst premiumAreas = [\n  'beverly hills', 'santa monica', 'palo alto', 'carmel',\n  'sausalito', 'napa', 'marin county', 'silicon valley',\n  'la jolla', 'manhattan beach', 'newport beach', 'carmel-by-the-sea',\n  'half moon bay', 'tiburon', 'mill valley', 'menlo park'\n];\n\n// Chain businesses to filter out (we want local businesses)\nconst chainKeywords = [\n  'mcdonald', 'burger king', 'subway', 'starbucks', 'kfc', 'taco bell',\n  'wendy', 'pizza hut', 'domino', 'papa john', 'ihop', 'denny',\n  'applebee', 'chili', 'olive garden', 'red lobster', 'outback',\n  'h&r block', 'jackson hewitt', 'liberty tax', 'geico', 'state farm'\n];\n\nfor (const item of items) {\n  const searchParams = item.json;\n  const results = item.json.results || [];\n  \n  console.log(`Processing ${results.length} results for: ${searchParams.query}`);\n  \n  for (const business of results) {\n    try {\n      // Skip permanently closed businesses\n      if (business.business_status === 'CLOSED_PERMANENTLY') {\n        continue;\n      }\n      \n      // Calculate prospect score\n      let score = 0;\n      \n      // Base score by business type (from search parameters)\n      const businessTypeScores = {\n        'car_dealer': 35,\n        'restaurant': 30,\n        'lawyer': 28,\n        'doctor': 25,\n        'dentist': 25,\n        'real_estate_agency': 25,\n        'accounting': 22,\n        'insurance_agency': 20\n      };\n      \n      score += businessTypeScores[searchParams.businessType] || 20;\n      \n      // Premium location bonus\n      const address = (business.formatted_address || '').toLowerCase();\n      const inPremiumArea = premiumAreas.some(area => address.includes(area));\n      if (inPremiumArea) {\n        score += 20;\n      }\n      \n      // Quality indicators\n      if (business.rating && business.rating >= 4.0) {\n        score += 15;\n      } else if (business.rating && business.rating >= 3.5) {\n        score += 10;\n      }\n      \n      if (business.user_ratings_total) {\n        if (business.user_ratings_total > 100) {\n          score += 15;\n        } else if (business.user_ratings_total > 50) {\n          score += 10;\n        } else if (business.user_ratings_total > 20) {\n          score += 5;\n        }\n      }\n      \n      // Price level bonus (higher price = more budget potential)\n      if (business.price_level) {\n        if (business.price_level >= 3) {\n          score += 15;\n        } else if (business.price_level === 2) {\n          score += 10;\n        }\n      }\n      \n      // Website presence bonus\n      if (business.website) {\n        score += 10;\n      }\n      \n      // Phone number availability\n      if (business.formatted_phone_number) {\n        score += 5;\n      }\n      \n      // Filter out chain businesses\n      const businessName = (business.name || '').toLowerCase();\n      const isChain = chainKeywords.some(chain => businessName.includes(chain));\n      if (isChain) {\n        score -= 25; // Heavy penalty for chains\n      }\n      \n      // Only include high-scoring prospects\n      const minScore = 45;\n      if (score >= minScore) {\n        // Determine specific business category\n        const categories = business.types || [];\n        let prospectType = searchParams.businessType;\n        \n        if (categories.includes('car_dealer')) prospectType = 'automotive';\n        else if (categories.includes('restaurant') || categories.includes('meal_takeaway') || categories.includes('meal_delivery')) prospectType = 'restaurant';\n        else if (categories.includes('lawyer') || categories.includes('legal_services')) prospectType = 'legal';\n        else if (categories.includes('doctor') || categories.includes('hospital') || categories.includes('health')) prospectType = 'medical';\n        else if (categories.includes('dentist') || categories.includes('dental_clinic')) prospectType = 'medical';\n        else if (categories.includes('real_estate_agency')) prospectType = 'real_estate';\n        \n        // Generate personalized angle\n        const personalizedAngle = generatePersonalizedAngle(business, inPremiumArea, prospectType);\n        \n        // Assess jingle needs based on business type\n        const jingleNeeds = assessJingleNeeds(prospectType, categories);\n        \n        // Estimate budget\n        const budgetEstimate = estimateBudget(business, inPremiumArea, prospectType);\n        \n        qualifiedProspects.push({\n          // Basic Information\n          name: business.name,\n          business_name: business.name,\n          address: business.formatted_address,\n          phone: business.formatted_phone_number,\n          website: business.website,\n          \n          // Classification\n          prospect_type: prospectType,\n          industry_category: categories.join(','),\n          lead_source: 'google_maps',\n          \n          // Scoring and Priority\n          lead_score: Math.min(score, 100),\n          budget_estimate: budgetEstimate,\n          priority_level: score >= 70 ? 'high' : (score >= 55 ? 'medium' : 'normal'),\n          \n          // Personalization\n          jingle_needs: jingleNeeds,\n          personalized_angle: personalizedAngle,\n          pain_points: identifyPainPoints(prospectType),\n          business_highlights: extractBusinessHighlights(business),\n          \n          // Geographic\n          city: searchParams.city,\n          state: 'CA',\n          in_california: true,\n          is_premium_area: inPremiumArea,\n          latitude: business.geometry ? business.geometry.location.lat : null,\n          longitude: business.geometry ? business.geometry.location.lng : null,\n          \n          // Google Data\n          google_rating: business.rating,\n          google_review_count: business.user_ratings_total || 0,\n          price_level: business.price_level,\n          \n          // Google Maps Specific Data\n          google_maps_data: {\n            place_id: business.place_id,\n            types: business.types,\n            business_status: business.business_status,\n            formatted_address: business.formatted_address,\n            formatted_phone_number: business.formatted_phone_number,\n            rating: business.rating,\n            user_ratings_total: business.user_ratings_total,\n            price_level: business.price_level,\n            website: business.website\n          },\n          \n          // Metadata\n          search_query: searchParams.query,\n          search_timestamp: new Date().toISOString(),\n          tags: [prospectType, searchParams.city, inPremiumArea ? 'premium_area' : 'standard_area']\n        });\n      }\n    } catch (error) {\n      console.error('Error processing business:', business.name, error);\n    }\n  }\n}\n\n// Helper Functions\nfunction generatePersonalizedAngle(business, isPremium, type) {\n  const name = business.name;\n  const rating = business.rating;\n  \n  if (isPremium) {\n    return `${name} serves one of California's most discerning markets. A custom jingle would perfectly complement your premium brand positioning and help you stand out in this competitive area.`;\n  }\n  \n  switch (type) {\n    case 'automotive':\n      return `California's competitive auto market means ${name} needs every advantage. A memorable jingle could be the difference-maker that makes customers think of you first when they're ready to buy.`;\n    case 'restaurant':\n      return `${name} has built a great reputation${rating ? ` with a ${rating}-star rating` : ''}. A custom jingle for your radio ads and social media could help you become the restaurant people can't stop humming about.`;\n    case 'legal':\n      return `${name} needs to be the first law firm potential clients think of in their time of need. A professional jingle creates instant brand recognition and trust.`;\n    case 'medical':\n      return `${name} provides essential healthcare services. A warm, professional jingle can help patients remember your practice and feel more comfortable choosing your care.`;\n    case 'real_estate':\n      return `In California's competitive real estate market, ${name} needs maximum brand recognition. A memorable jingle ensures you're the agent people call when they're ready to buy or sell.`;\n    default:\n      return `${name} has built a strong local presence. A custom jingle could take your brand recognition to the next level and help you dominate your local market.`;\n  }\n}\n\nfunction assessJingleNeeds(type, categories) {\n  const needs = ['brand_recognition', 'phone_hold'];\n  \n  switch (type) {\n    case 'automotive':\n      return [...needs, 'tv_commercials', 'radio_ads', 'showroom_music', 'video_content'];\n    case 'restaurant':\n      return [...needs, 'radio_ads', 'social_media', 'video_marketing', 'atmosphere_music'];\n    case 'legal':\n      return [...needs, 'tv_ads', 'radio_ads', 'video_content', 'professional_image'];\n    case 'medical':\n      return [...needs, 'waiting_room', 'radio_ads', 'video_marketing', 'patient_comfort'];\n    case 'real_estate':\n      return [...needs, 'radio_ads', 'video_marketing', 'social_media', 'property_videos'];\n    default:\n      return [...needs, 'marketing', 'social_media'];\n  }\n}\n\nfunction estimateBudget(business, isPremium, type) {\n  let budget = 'medium';\n  \n  // High-budget business types\n  if (['automotive', 'legal'].includes(type)) {\n    budget = 'high';\n  }\n  \n  // Premium area adjustment\n  if (isPremium) {\n    if (budget === 'medium') budget = 'medium-high';\n    if (budget === 'low') budget = 'medium';\n  }\n  \n  // Price level adjustment\n  if (business.price_level >= 3) {\n    budget = 'high';\n  } else if (business.price_level === 2 && budget === 'low') {\n    budget = 'medium';\n  }\n  \n  return budget;\n}\n\nfunction identifyPainPoints(type) {\n  const common = ['brand_recognition', 'local_competition', 'marketing_effectiveness'];\n  \n  switch (type) {\n    case 'automotive':\n      return [...common, 'inventory_movement', 'customer_recall', 'seasonal_sales'];\n    case 'restaurant':\n      return [...common, 'customer_retention', 'peak_hour_optimization', 'social_media_presence'];\n    case 'legal':\n      return [...common, 'client_trust', 'professional_image', 'referral_generation'];\n    case 'medical':\n      return [...common, 'patient_comfort', 'appointment_scheduling', 'insurance_complexity'];\n    case 'real_estate':\n      return [...common, 'market_volatility', 'lead_generation', 'client_decision_time'];\n    default:\n      return common;\n  }\n}\n\nfunction extractBusinessHighlights(business) {\n  const highlights = [];\n  \n  if (business.rating >= 4.0) {\n    highlights.push(`${business.rating}-star rating`);\n  }\n  \n  if (business.user_ratings_total > 50) {\n    highlights.push(`${business.user_ratings_total}+ customer reviews`);\n  }\n  \n  if (business.price_level >= 2) {\n    highlights.push('premium_pricing');\n  }\n  \n  if (business.website) {\n    highlights.push('online_presence');\n  }\n  \n  return highlights;\n}\n\n// Sort by score and return top prospects\nqualifiedProspects.sort((a, b) => b.lead_score - a.lead_score);\n\nconsole.log(`Generated ${qualifiedProspects.length} qualified prospects`);\n\nreturn qualifiedProspects.slice(0, 25).map(prospect => ({ json: prospect }));"
+      },
+      "id": "ad4e5f6a-7b8c-9d0e-1f2a-3b4c5d6e7f8a",
+      "name": "Process & Score Results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "operation": "insert",
+        "table": "prospects",
+        "columns": "name,business_name,address,phone,website,prospect_type,industry_category,lead_source,lead_score,budget_estimate,priority_level,jingle_needs,personalized_angle,pain_points,business_highlights,city,state,in_california,is_premium_area,latitude,longitude,google_rating,google_review_count,price_level,tags",
+        "additionalFields": {
+          "mode": "upsert",
+          "upsertColumns": "business_name,address"
+        }
+      },
+      "id": "be5f6a7b-8c9d-0e1f-2a3b-4c5d6e7f8a9b",
+      "name": "Save Prospects to Database",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [1120, 300],
+      "credentials": {
+        "postgres": {
+          "id": "postgres_main",
+          "name": "PostgreSQL - SongLabAI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "insert",
+        "table": "google_maps_data",
+        "columns": "prospect_id,place_id,formatted_address,formatted_phone_number,rating,user_ratings_total,types",
+        "additionalFields": {
+          "mode": "upsert",
+          "upsertColumns": "place_id"
+        }
+      },
+      "id": "cf6a7b8c-9d0e-1f2a-3b4c-5d6e7f8a9b0c",
+      "name": "Save Google Maps Data",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [1120, 480],
+      "credentials": {
+        "postgres": {
+          "id": "postgres_main",
+          "name": "PostgreSQL - SongLabAI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// SongLabAI - Workflow Results Summary\n// Generate summary statistics and log workflow execution\n\nconst items = $input.all();\nconst timestamp = new Date();\n\n// Count results by type\nconst summary = {\n  total_prospects: items.length,\n  automotive: items.filter(item => item.json.prospect_type === 'automotive').length,\n  restaurant: items.filter(item => item.json.prospect_type === 'restaurant').length,\n  legal: items.filter(item => item.json.prospect_type === 'legal').length,\n  medical: items.filter(item => item.json.prospect_type === 'medical').length,\n  real_estate: items.filter(item => item.json.prospect_type === 'real_estate').length,\n  premium_area_prospects: items.filter(item => item.json.is_premium_area).length,\n  high_score_prospects: items.filter(item => item.json.lead_score >= 70).length,\n  average_score: items.length > 0 ? Math.round(items.reduce((sum, item) => sum + item.json.lead_score, 0) / items.length) : 0,\n  execution_timestamp: timestamp.toISOString(),\n  workflow_name: 'Google Maps Business Prospecting'\n};\n\n// Log to console for monitoring\nconsole.log('=== Google Maps Prospecting Summary ===');\nconsole.log(`✅ Total Prospects Added: ${summary.total_prospects}`);\nconsole.log(`🚗 Automotive: ${summary.automotive}`);\nconsole.log(`🍽️ Restaurant: ${summary.restaurant}`);\nconsole.log(`⚖️ Legal: ${summary.legal}`);\nconsole.log(`🏥 Medical: ${summary.medical}`);\nconsole.log(`🏠 Real Estate: ${summary.real_estate}`);\nconsole.log(`💎 Premium Area: ${summary.premium_area_prospects}`);\nconsole.log(`🎯 High Score (70+): ${summary.high_score_prospects}`);\nconsole.log(`📊 Average Score: ${summary.average_score}`);\nconsole.log('=========================================');\n\nreturn [{ json: summary }];"
+      },
+      "id": "da7b8c9d-0e1f-2a3b-4c5d-6e7f8a9b0c1d",
+      "name": "Generate Summary",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1340, 300]
+    },
+    {
+      "parameters": {
+        "operation": "insert",
+        "table": "workflow_logs",
+        "columns": "workflow_name,status,start_time,end_time,records_processed,records_success,context_data"
+      },
+      "id": "eb8c9d0e-1f2a-3b4c-5d6e-7f8a9b0c1d2e",
+      "name": "Log Workflow Execution",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [1560, 300],
+      "credentials": {
+        "postgres": {
+          "id": "postgres_main",
+          "name": "PostgreSQL - SongLabAI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "condition1",
+              "leftValue": "={{ $json.total_prospects }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "fc9d0e1f-2a3b-4c5d-6e7f-8a9b0c1d2e3f",
+      "name": "Check If Prospects Found",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1340, 120]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SLACK_WEBHOOK_URL }}",
+        "options": {
+          "body": {
+            "type": "json",
+            "json": "{\n  \"text\": \"🎵 SongLabAI Prospecting Update\",\n  \"blocks\": [\n    {\n      \"type\": \"section\",\n      \"text\": {\n        \"type\": \"mrkdwn\",\n        \"text\": \"*Google Maps Prospecting Complete* 🎯\\n\\nFound {{ $json.total_prospects }} new qualified prospects:\\n• 🚗 Automotive: {{ $json.automotive }}\\n• 🍽️ Restaurant: {{ $json.restaurant }}\\n• ⚖️ Legal: {{ $json.legal }}\\n• 🏥 Medical: {{ $json.medical }}\\n• 🏠 Real Estate: {{ $json.real_estate }}\\n\\n💎 Premium Area Prospects: {{ $json.premium_area_prospects }}\\n📊 Average Lead Score: {{ $json.average_score }}\\n🎯 High Priority (70+ score): {{ $json.high_score_prospects }}\"\n      }\n    }\n  ]\n}"
+          }
+        }
+      },
+      "id": "0d1e2f3a-4b5c-6d7e-8f9a-0b1c2d3e4f5a",
+      "name": "Send Slack Notification",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1560, 120]
+    },
+    {
+      "parameters": {
+        "jsCode": "// SongLabAI - Error Handler\n// Log errors and send notifications for failed workflow execution\n\nconst error = $input.first();\nconst timestamp = new Date();\n\n// Create error summary\nconst errorSummary = {\n  workflow_name: 'Google Maps Business Prospecting',\n  status: 'error',\n  start_time: timestamp.toISOString(),\n  end_time: timestamp.toISOString(),\n  records_processed: 0,\n  records_success: 0,\n  error_message: error.error?.message || 'Unknown error occurred',\n  error_stack: error.error?.stack || 'No stack trace available',\n  context_data: {\n    node_name: error.node?.name || 'Unknown node',\n    error_type: error.error?.name || 'Unknown error type',\n    execution_id: $executionId,\n    timestamp: timestamp.toISOString()\n  }\n};\n\nconsole.error('❌ Google Maps Prospecting Failed:', errorSummary);\n\nreturn [{ json: errorSummary }];"
+      },
+      "id": "1e2f3a4b-5c6d-7e8f-9a0b-1c2d3e4f5a6b",
+      "name": "Error Handler",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 520]
+    },
+    {
+      "parameters": {
+        "operation": "insert",
+        "table": "workflow_logs",
+        "columns": "workflow_name,status,start_time,end_time,records_processed,records_success,error_message,error_stack,context_data"
+      },
+      "id": "2f3a4b5c-6d7e-8f9a-0b1c-2d3e4f5a6b7c",
+      "name": "Log Error",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [1120, 520],
+      "credentials": {
+        "postgres": {
+          "id": "postgres_main",
+          "name": "PostgreSQL - SongLabAI"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Daily Trigger": {
+      "main": [
+        [
+          {
+            "node": "Setup Search Parameters",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Setup Search Parameters": {
+      "main": [
+        [
+          {
+            "node": "Google Places Search",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Places Search": {
+      "main": [
+        [
+          {
+            "node": "Process & Score Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process & Score Results": {
+      "main": [
+        [
+          {
+            "node": "Save Prospects to Database",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Save Google Maps Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Prospects to Database": {
+      "main": [
+        [
+          {
+            "node": "Generate Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Summary": {
+      "main": [
+        [
+          {
+            "node": "Check If Prospects Found",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Log Workflow Execution",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check If Prospects Found": {
+      "main": [
+        [
+          {
+            "node": "Send Slack Notification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Error Handler": {
+      "main": [
+        [
+          {
+            "node": "Log Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": {
+      "onError": "continueRegularExecution"
+    }
+  },
+  "versionId": "1",
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "id": "google-maps-prospecting",
+  "tags": [
+    {
+      "createdAt": "2025-07-28T23:35:00.000Z",
+      "updatedAt": "2025-07-28T23:35:00.000Z",
+      "id": "lead-generation",
+      "name": "lead-generation"
+    },
+    {
+      "createdAt": "2025-07-28T23:35:00.000Z",
+      "updatedAt": "2025-07-28T23:35:00.000Z",
+      "id": "google-maps",
+      "name": "google-maps"
+    },
+    {
+      "createdAt": "2025-07-28T23:35:00.000Z",
+      "updatedAt": "2025-07-28T23:35:00.000Z",
+      "id": "california",
+      "name": "california"
+    }
+  ]
+}

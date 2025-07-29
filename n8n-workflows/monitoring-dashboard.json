@@ -1,0 +1,373 @@
+{
+  "name": "Monitoring & Analytics Dashboard",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 6
+            }
+          ]
+        }
+      },
+      "id": "1a2b3c4d-5e6f-7a8b-9c0d-1e2f3a4b5c6d",
+      "name": "6-Hour Analytics Trigger",
+      "type": "n8n-nodes-base.cron",
+      "typeVersion": 1,
+      "position": [240, 300],
+      "cronExpression": "0 */6 * * *"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Daily Analytics Summary\nSELECT \n  -- Prospect Metrics\n  COUNT(CASE WHEN DATE(created_at) = CURRENT_DATE THEN 1 END) as prospects_today,\n  COUNT(CASE WHEN DATE(created_at) >= CURRENT_DATE - INTERVAL '7 days' THEN 1 END) as prospects_7days,\n  COUNT(CASE WHEN DATE(created_at) >= CURRENT_DATE - INTERVAL '30 days' THEN 1 END) as prospects_30days,\n  \n  -- Prospect Sources\n  COUNT(CASE WHEN lead_source = 'google_maps' AND DATE(created_at) = CURRENT_DATE THEN 1 END) as google_prospects_today,\n  COUNT(CASE WHEN lead_source = 'linkedin_alternative' AND DATE(created_at) = CURRENT_DATE THEN 1 END) as linkedin_prospects_today,\n  \n  -- Prospect Types\n  COUNT(CASE WHEN prospect_type = 'automotive' AND DATE(created_at) = CURRENT_DATE THEN 1 END) as automotive_today,\n  COUNT(CASE WHEN prospect_type = 'restaurant' AND DATE(created_at) = CURRENT_DATE THEN 1 END) as restaurant_today,\n  COUNT(CASE WHEN prospect_type = 'legal' AND DATE(created_at) = CURRENT_DATE THEN 1 END) as legal_today,\n  COUNT(CASE WHEN prospect_type = 'medical' AND DATE(created_at) = CURRENT_DATE THEN 1 END) as medical_today,\n  \n  -- Quality Metrics\n  AVG(CASE WHEN DATE(created_at) = CURRENT_DATE THEN lead_score END) as avg_score_today,\n  COUNT(CASE WHEN lead_score >= 70 AND DATE(created_at) = CURRENT_DATE THEN 1 END) as high_score_today,\n  COUNT(CASE WHEN is_premium_area = TRUE AND DATE(created_at) = CURRENT_DATE THEN 1 END) as premium_area_today,\n  \n  -- Contact Status\n  COUNT(CASE WHEN contacted = TRUE THEN 1 END) as total_contacted,\n  COUNT(CASE WHEN meeting_booked = TRUE THEN 1 END) as total_meetings_booked,\n  \n  -- Pipeline Status\n  COUNT(CASE WHEN pipeline_stage = 'new' THEN 1 END) as new_prospects,\n  COUNT(CASE WHEN pipeline_stage = 'contacted' THEN 1 END) as contacted_prospects,\n  COUNT(CASE WHEN pipeline_stage = 'meeting_scheduled' THEN 1 END) as meeting_scheduled,\n  \n  -- Timestamp\n  CURRENT_TIMESTAMP as report_timestamp\nFROM prospects \nWHERE is_active = TRUE AND deleted_at IS NULL;",
+        "options": {}
+      },
+      "id": "2b3c4d5e-6f7a-8b9c-0d1e-2f3a4b5c6d7e",
+      "name": "Get Prospect Analytics",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [460, 200],
+      "credentials": {
+        "postgres": {
+          "id": "postgres_main",
+          "name": "PostgreSQL - SongLabAI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Email Campaign Analytics\nSELECT \n  -- Today's Email Activity\n  COUNT(CASE WHEN DATE(sent_at) = CURRENT_DATE THEN 1 END) as emails_sent_today,\n  COUNT(CASE WHEN DATE(opened_at) = CURRENT_DATE THEN 1 END) as emails_opened_today,\n  COUNT(CASE WHEN DATE(clicked_at) = CURRENT_DATE THEN 1 END) as emails_clicked_today,\n  COUNT(CASE WHEN DATE(replied_at) = CURRENT_DATE THEN 1 END) as emails_replied_today,\n  \n  -- 7-Day Email Performance\n  COUNT(CASE WHEN sent_at >= CURRENT_DATE - INTERVAL '7 days' THEN 1 END) as emails_sent_7days,\n  COUNT(CASE WHEN opened_at >= CURRENT_DATE - INTERVAL '7 days' THEN 1 END) as emails_opened_7days,\n  COUNT(CASE WHEN clicked_at >= CURRENT_DATE - INTERVAL '7 days' THEN 1 END) as emails_clicked_7days,\n  COUNT(CASE WHEN replied_at >= CURRENT_DATE - INTERVAL '7 days' THEN 1 END) as emails_replied_7days,\n  \n  -- Email Types Performance (Last 7 Days)\n  COUNT(CASE WHEN email_type = 'initial_outreach' AND sent_at >= CURRENT_DATE - INTERVAL '7 days' THEN 1 END) as initial_outreach_7days,\n  COUNT(CASE WHEN email_type = 'follow_up_1' AND sent_at >= CURRENT_DATE - INTERVAL '7 days' THEN 1 END) as follow_up_1_7days,\n  COUNT(CASE WHEN email_type = 'meeting_confirmation' AND sent_at >= CURRENT_DATE - INTERVAL '7 days' THEN 1 END) as confirmations_7days,\n  \n  -- Conversion Rates (Last 30 Days)\n  ROUND(\n    COUNT(CASE WHEN opened_at IS NOT NULL AND sent_at >= CURRENT_DATE - INTERVAL '30 days' THEN 1 END) * 100.0 / \n    NULLIF(COUNT(CASE WHEN sent_at >= CURRENT_DATE - INTERVAL '30 days' THEN 1 END), 0), 2\n  ) as open_rate_30days,\n  \n  ROUND(\n    COUNT(CASE WHEN clicked_at IS NOT NULL AND sent_at >= CURRENT_DATE - INTERVAL '30 days' THEN 1 END) * 100.0 / \n    NULLIF(COUNT(CASE WHEN sent_at >= CURRENT_DATE - INTERVAL '30 days' THEN 1 END), 0), 2\n  ) as click_rate_30days,\n  \n  ROUND(\n    COUNT(CASE WHEN replied_at IS NOT NULL AND sent_at >= CURRENT_DATE - INTERVAL '30 days' THEN 1 END) * 100.0 / \n    NULLIF(COUNT(CASE WHEN sent_at >= CURRENT_DATE - INTERVAL '30 days' THEN 1 END), 0), 2\n  ) as reply_rate_30days,\n  \n  -- Timestamp\n  CURRENT_TIMESTAMP as report_timestamp\nFROM email_campaigns;",
+        "options": {}
+      },
+      "id": "3c4d5e6f-7a8b-9c0d-1e2f-3a4b5c6d7e8f",
+      "name": "Get Email Analytics",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [460, 400],
+      "credentials": {
+        "postgres": {
+          "id": "postgres_main",
+          "name": "PostgreSQL - SongLabAI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Meeting & Calendly Analytics\nSELECT \n  -- Today's Meeting Activity\n  COUNT(CASE WHEN DATE(start_time) = CURRENT_DATE THEN 1 END) as meetings_today,\n  COUNT(CASE WHEN DATE(created_at) = CURRENT_DATE THEN 1 END) as bookings_today,\n  \n  -- 7-Day Meeting Activity\n  COUNT(CASE WHEN start_time >= CURRENT_DATE - INTERVAL '7 days' THEN 1 END) as meetings_7days,\n  COUNT(CASE WHEN created_at >= CURRENT_DATE - INTERVAL '7 days' THEN 1 END) as bookings_7days,\n  \n  -- Meeting Types (Last 7 Days)\n  COUNT(CASE WHEN meeting_type = 'automotive_consultation' AND created_at >= CURRENT_DATE - INTERVAL '7 days' THEN 1 END) as automotive_meetings_7days,\n  COUNT(CASE WHEN meeting_type = 'restaurant_consultation' AND created_at >= CURRENT_DATE - INTERVAL '7 days' THEN 1 END) as restaurant_meetings_7days,\n  COUNT(CASE WHEN meeting_type = 'legal_consultation' AND created_at >= CURRENT_DATE - INTERVAL '7 days' THEN 1 END) as legal_meetings_7days,\n  COUNT(CASE WHEN meeting_type = 'medical_consultation' AND created_at >= CURRENT_DATE - INTERVAL '7 days' THEN 1 END) as medical_meetings_7days,\n  COUNT(CASE WHEN meeting_type = 'general_consultation' AND created_at >= CURRENT_DATE - INTERVAL '7 days' THEN 1 END) as general_meetings_7days,\n  \n  -- Meeting Status (All Time)\n  COUNT(CASE WHEN event_status = 'scheduled' THEN 1 END) as scheduled_meetings,\n  COUNT(CASE WHEN event_status = 'completed' THEN 1 END) as completed_meetings,\n  COUNT(CASE WHEN event_status = 'canceled' THEN 1 END) as canceled_meetings,\n  COUNT(CASE WHEN event_status = 'no_show' THEN 1 END) as no_show_meetings,\n  \n  -- Prospect Matching\n  COUNT(CASE WHEN prospect_id IS NOT NULL THEN 1 END) as meetings_with_prospects,\n  COUNT(CASE WHEN prospect_id IS NULL THEN 1 END) as meetings_without_prospects,\n  \n  -- Upcoming Meetings (Next 7 Days)\n  COUNT(CASE WHEN start_time BETWEEN CURRENT_TIMESTAMP AND CURRENT_TIMESTAMP + INTERVAL '7 days' THEN 1 END) as upcoming_meetings,\n  \n  -- Timestamp\n  CURRENT_TIMESTAMP as report_timestamp\nFROM calendly_events;",
+        "options": {}
+      },
+      "id": "4d5e6f7a-8b9c-0d1e-2f3a-4b5c6d7e8f9a",
+      "name": "Get Meeting Analytics",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [460, 600],
+      "credentials": {
+        "postgres": {
+          "id": "postgres_main",
+          "name": "PostgreSQL - SongLabAI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Workflow Performance Analytics\nSELECT \n  workflow_name,\n  \n  -- Execution Counts\n  COUNT(*) as total_executions,\n  COUNT(CASE WHEN DATE(start_time) = CURRENT_DATE THEN 1 END) as executions_today,\n  COUNT(CASE WHEN start_time >= CURRENT_DATE - INTERVAL '7 days' THEN 1 END) as executions_7days,\n  \n  -- Success Rate\n  COUNT(CASE WHEN status = 'success' THEN 1 END) as successful_executions,\n  COUNT(CASE WHEN status = 'error' THEN 1 END) as failed_executions,\n  ROUND(COUNT(CASE WHEN status = 'success' THEN 1 END) * 100.0 / COUNT(*), 2) as success_rate,\n  \n  -- Performance Metrics\n  AVG(duration_seconds) as avg_duration_seconds,\n  MAX(duration_seconds) as max_duration_seconds,\n  SUM(records_processed) as total_records_processed,\n  AVG(records_processed) as avg_records_per_execution,\n  \n  -- Recent Activity\n  MAX(start_time) as last_execution,\n  MIN(start_time) as first_execution,\n  \n  -- Recent Errors\n  COUNT(CASE WHEN status = 'error' AND start_time >= CURRENT_DATE - INTERVAL '24 hours' THEN 1 END) as errors_24h,\n  \n  -- Timestamp\n  CURRENT_TIMESTAMP as report_timestamp\n  \nFROM workflow_logs \nWHERE start_time >= CURRENT_DATE - INTERVAL '30 days'\nGROUP BY workflow_name\nORDER BY total_executions DESC;",
+        "options": {}
+      },
+      "id": "5e6f7a8b-9c0d-1e2f-3a4b-5c6d7e8f9a0b",
+      "name": "Get Workflow Analytics",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [460, 800],
+      "credentials": {
+        "postgres": {
+          "id": "postgres_main",
+          "name": "PostgreSQL - SongLabAI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// SongLabAI - Analytics Dashboard Generator\n// Combines all analytics data into comprehensive dashboard\n\nconst items = $input.all();\nconst timestamp = new Date();\n\n// Extract analytics data from each query\nconst prospectAnalytics = items[0]?.json || {};\nconst emailAnalytics = items[1]?.json || {};\nconst meetingAnalytics = items[2]?.json || {};\nconst workflowAnalytics = items.slice(3) || [];\n\n// Generate comprehensive dashboard\nconst dashboard = {\n  // Report Metadata\n  report_generated: timestamp.toISOString(),\n  report_type: 'analytics_dashboard',\n  period: '6_hourly',\n  \n  // Prospect Performance\n  prospects: {\n    today: parseInt(prospectAnalytics.prospects_today) || 0,\n    week: parseInt(prospectAnalytics.prospects_7days) || 0,\n    month: parseInt(prospectAnalytics.prospects_30days) || 0,\n    \n    sources: {\n      google_maps_today: parseInt(prospectAnalytics.google_prospects_today) || 0,\n      linkedin_today: parseInt(prospectAnalytics.linkedin_prospects_today) || 0\n    },\n    \n    types: {\n      automotive_today: parseInt(prospectAnalytics.automotive_today) || 0,\n      restaurant_today: parseInt(prospectAnalytics.restaurant_today) || 0,\n      legal_today: parseInt(prospectAnalytics.legal_today) || 0,\n      medical_today: parseInt(prospectAnalytics.medical_today) || 0\n    },\n    \n    quality: {\n      avg_score_today: Math.round(parseFloat(prospectAnalytics.avg_score_today) || 0),\n      high_score_today: parseInt(prospectAnalytics.high_score_today) || 0,\n      premium_area_today: parseInt(prospectAnalytics.premium_area_today) || 0\n    },\n    \n    pipeline: {\n      new: parseInt(prospectAnalytics.new_prospects) || 0,\n      contacted: parseInt(prospectAnalytics.contacted_prospects) || 0,\n      meetings_scheduled: parseInt(prospectAnalytics.meeting_scheduled) || 0,\n      total_contacted: parseInt(prospectAnalytics.total_contacted) || 0,\n      total_meetings_booked: parseInt(prospectAnalytics.total_meetings_booked) || 0\n    }\n  },\n  \n  // Email Performance\n  emails: {\n    today: {\n      sent: parseInt(emailAnalytics.emails_sent_today) || 0,\n      opened: parseInt(emailAnalytics.emails_opened_today) || 0,\n      clicked: parseInt(emailAnalytics.emails_clicked_today) || 0,\n      replied: parseInt(emailAnalytics.emails_replied_today) || 0\n    },\n    \n    week: {\n      sent: parseInt(emailAnalytics.emails_sent_7days) || 0,\n      opened: parseInt(emailAnalytics.emails_opened_7days) || 0,\n      clicked: parseInt(emailAnalytics.emails_clicked_7days) || 0,\n      replied: parseInt(emailAnalytics.emails_replied_7days) || 0,\n      initial_outreach: parseInt(emailAnalytics.initial_outreach_7days) || 0,\n      follow_ups: parseInt(emailAnalytics.follow_up_1_7days) || 0,\n      confirmations: parseInt(emailAnalytics.confirmations_7days) || 0\n    },\n    \n    performance: {\n      open_rate: parseFloat(emailAnalytics.open_rate_30days) || 0,\n      click_rate: parseFloat(emailAnalytics.click_rate_30days) || 0,\n      reply_rate: parseFloat(emailAnalytics.reply_rate_30days) || 0\n    }\n  },\n  \n  // Meeting Performance\n  meetings: {\n    today: {\n      meetings: parseInt(meetingAnalytics.meetings_today) || 0,\n      bookings: parseInt(meetingAnalytics.bookings_today) || 0\n    },\n    \n    week: {\n      meetings: parseInt(meetingAnalytics.meetings_7days) || 0,\n      bookings: parseInt(meetingAnalytics.bookings_7days) || 0,\n      automotive: parseInt(meetingAnalytics.automotive_meetings_7days) || 0,\n      restaurant: parseInt(meetingAnalytics.restaurant_meetings_7days) || 0,\n      legal: parseInt(meetingAnalytics.legal_meetings_7days) || 0,\n      medical: parseInt(meetingAnalytics.medical_meetings_7days) || 0,\n      general: parseInt(meetingAnalytics.general_meetings_7days) || 0\n    },\n    \n    status: {\n      scheduled: parseInt(meetingAnalytics.scheduled_meetings) || 0,\n      completed: parseInt(meetingAnalytics.completed_meetings) || 0,\n      canceled: parseInt(meetingAnalytics.canceled_meetings) || 0,\n      no_show: parseInt(meetingAnalytics.no_show_meetings) || 0\n    },\n    \n    matching: {\n      with_prospects: parseInt(meetingAnalytics.meetings_with_prospects) || 0,\n      without_prospects: parseInt(meetingAnalytics.meetings_without_prospects) || 0,\n      match_rate: Math.round((parseInt(meetingAnalytics.meetings_with_prospects) || 0) * 100 / Math.max((parseInt(meetingAnalytics.meetings_with_prospects) || 0) + (parseInt(meetingAnalytics.meetings_without_prospects) || 0), 1))\n    },\n    \n    upcoming: parseInt(meetingAnalytics.upcoming_meetings) || 0\n  },\n  \n  // Workflow Health\n  workflows: workflowAnalytics.map(workflow => ({\n    name: workflow.json.workflow_name,\n    executions_today: parseInt(workflow.json.executions_today) || 0,\n    executions_week: parseInt(workflow.json.executions_7days) || 0,\n    success_rate: parseFloat(workflow.json.success_rate) || 0,\n    avg_duration: Math.round(parseFloat(workflow.json.avg_duration_seconds) || 0),\n    total_records: parseInt(workflow.json.total_records_processed) || 0,\n    last_execution: workflow.json.last_execution,\n    errors_24h: parseInt(workflow.json.errors_24h) || 0,\n    health_status: determineWorkflowHealth(workflow.json)\n  })),\n  \n  // Key Performance Indicators\n  kpis: {\n    // Conversion Funnel\n    prospect_to_contact_rate: Math.round((parseInt(prospectAnalytics.total_contacted) || 0) * 100 / Math.max(parseInt(prospectAnalytics.prospects_30days) || 1, 1)),\n    contact_to_meeting_rate: Math.round((parseInt(prospectAnalytics.total_meetings_booked) || 0) * 100 / Math.max(parseInt(prospectAnalytics.total_contacted) || 1, 1)),\n    \n    // Daily Performance\n    daily_prospect_velocity: (parseInt(prospectAnalytics.prospects_7days) || 0) / 7,\n    daily_email_velocity: (parseInt(emailAnalytics.emails_sent_7days) || 0) / 7,\n    daily_meeting_velocity: (parseInt(meetingAnalytics.bookings_7days) || 0) / 7,\n    \n    // Quality Metrics\n    avg_lead_score: Math.round(parseFloat(prospectAnalytics.avg_score_today) || 0),\n    premium_area_percentage: Math.round((parseInt(prospectAnalytics.premium_area_today) || 0) * 100 / Math.max(parseInt(prospectAnalytics.prospects_today) || 1, 1)),\n    \n    // System Health\n    overall_system_health: calculateOverallHealth(workflowAnalytics)\n  },\n  \n  // Alerts and Recommendations\n  alerts: generateAlerts(prospectAnalytics, emailAnalytics, meetingAnalytics, workflowAnalytics),\n  \n  // Next Actions\n  recommendations: generateRecommendations(prospectAnalytics, emailAnalytics, meetingAnalytics)\n};\n\n// Helper Functions\nfunction determineWorkflowHealth(workflow) {\n  const successRate = parseFloat(workflow.success_rate) || 0;\n  const errors24h = parseInt(workflow.errors_24h) || 0;\n  const executionsToday = parseInt(workflow.executions_today) || 0;\n  \n  if (errors24h > 0) return 'error';\n  if (successRate < 80) return 'warning';\n  if (executionsToday === 0 && workflow.workflow_name !== 'LinkedIn Alternative Prospecting') return 'warning';\n  return 'healthy';\n}\n\nfunction calculateOverallHealth(workflows) {\n  if (workflows.length === 0) return 'unknown';\n  \n  const healthStatuses = workflows.map(w => determineWorkflowHealth(w.json));\n  const errorCount = healthStatuses.filter(s => s === 'error').length;\n  const warningCount = healthStatuses.filter(s => s === 'warning').length;\n  \n  if (errorCount > 0) return 'critical';\n  if (warningCount > 1) return 'warning';\n  return 'healthy';\n}\n\nfunction generateAlerts(prospects, emails, meetings, workflows) {\n  const alerts = [];\n  \n  // Prospect Generation Alerts\n  if ((parseInt(prospects.prospects_today) || 0) < 10) {\n    alerts.push({\n      type: 'warning',\n      category: 'prospects',\n      message: `Low prospect generation today: ${prospects.prospects_today || 0} prospects`,\n      action: 'Check Google Maps API quotas and workflow execution'\n    });\n  }\n  \n  // Email Performance Alerts\n  const openRate = parseFloat(emails.open_rate_30days) || 0;\n  if (openRate < 15) {\n    alerts.push({\n      type: 'warning',\n      category: 'emails',\n      message: `Low email open rate: ${openRate}%`,\n      action: 'Review email subject lines and sending reputation'\n    });\n  }\n  \n  // Meeting Booking Alerts\n  if ((parseInt(meetings.bookings_7days) || 0) < 3) {\n    alerts.push({\n      type: 'info',\n      category: 'meetings',\n      message: `Low meeting bookings this week: ${meetings.bookings_7days || 0} bookings`,\n      action: 'Review email CTAs and Calendly link placement'\n    });\n  }\n  \n  // Workflow Health Alerts\n  workflows.forEach(workflow => {\n    const health = determineWorkflowHealth(workflow.json);\n    if (health === 'error') {\n      alerts.push({\n        type: 'error',\n        category: 'workflow',\n        message: `${workflow.json.workflow_name} has errors in the last 24h`,\n        action: 'Check workflow logs and fix underlying issues'\n      });\n    }\n  });\n  \n  return alerts;\n}\n\nfunction generateRecommendations(prospects, emails, meetings) {\n  const recommendations = [];\n  \n  // Prospect Quality Recommendations\n  const avgScore = parseFloat(prospects.avg_score_today) || 0;\n  if (avgScore < 60) {\n    recommendations.push({\n      category: 'prospects',\n      priority: 'medium',\n      message: 'Consider adjusting lead scoring criteria to focus on higher-quality prospects',\n      impact: 'Higher conversion rates'\n    });\n  }\n  \n  // Email Performance Recommendations\n  const replyRate = parseFloat(emails.reply_rate_30days) || 0;\n  if (replyRate < 5) {\n    recommendations.push({\n      category: 'emails',\n      priority: 'high',\n      message: 'Low reply rate suggests need for more personalized email content',\n      impact: 'Increased engagement and meeting bookings'\n    });\n  }\n  \n  // Meeting Optimization Recommendations\n  const weeklyMeetings = parseInt(meetings.bookings_7days) || 0;\n  const weeklyEmails = parseInt(emails.emails_sent_7days) || 0;\n  const emailToMeetingRate = weeklyEmails > 0 ? (weeklyMeetings / weeklyEmails) * 100 : 0;\n  \n  if (emailToMeetingRate < 10) {\n    recommendations.push({\n      category: 'conversion',\n      priority: 'high',\n      message: 'Email-to-meeting conversion rate is low. Consider A/B testing CTAs and offering stronger incentives',\n      impact: 'More meetings booked from same email volume'\n    });\n  }\n  \n  return recommendations;\n}\n\n// Log comprehensive dashboard to console\nconsole.log('=== SongLabAI Analytics Dashboard ===');\nconsole.log(`📊 Generated at: ${dashboard.report_generated}`);\nconsole.log(`\\n🎯 PROSPECTS:`);\nconsole.log(`  Today: ${dashboard.prospects.today} | Week: ${dashboard.prospects.week} | Month: ${dashboard.prospects.month}`);\nconsole.log(`  Avg Score: ${dashboard.kpis.avg_lead_score} | High Score: ${dashboard.prospects.quality.high_score_today}`);\nconsole.log(`\\n📧 EMAILS:`);\nconsole.log(`  Sent Today: ${dashboard.emails.today.sent} | Week: ${dashboard.emails.week.sent}`);\nconsole.log(`  Performance: ${dashboard.emails.performance.open_rate}% open, ${dashboard.emails.performance.click_rate}% click, ${dashboard.emails.performance.reply_rate}% reply`);\nconsole.log(`\\n📅 MEETINGS:`);\nconsole.log(`  Booked Today: ${dashboard.meetings.today.bookings} | Week: ${dashboard.meetings.week.bookings}`);\nconsole.log(`  Scheduled: ${dashboard.meetings.status.scheduled} | Completed: ${dashboard.meetings.status.completed}`);\nconsole.log(`\\n⚡ SYSTEM HEALTH: ${dashboard.kpis.overall_system_health.toUpperCase()}`);\nconsole.log(`\\n🚨 ALERTS: ${dashboard.alerts.length} active`);\ndashboard.alerts.forEach(alert => console.log(`  ${alert.type.toUpperCase()}: ${alert.message}`));\nconsole.log('=====================================');\n\nreturn [{ json: dashboard }];"
+      },
+      "id": "6f7a8b9c-0d1e-2f3a-4b5c-6d7e8f9a0b1c",
+      "name": "Generate Dashboard",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [680, 500]
+    },
+    {
+      "parameters": {
+        "operation": "insert",
+        "table": "analytics_daily",
+        "columns": "date,prospects_added,google_maps_prospects,linkedin_prospects,emails_sent,emails_delivered,emails_opened,emails_clicked,meetings_booked,meetings_completed",
+        "additionalFields": {
+          "mode": "upsert",
+          "upsertColumns": "date"
+        }
+      },
+      "id": "7a8b9c0d-1e2f-3a4b-5c6d-7e8f9a0b1c2d",
+      "name": "Update Daily Analytics",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [900, 400],
+      "credentials": {
+        "postgres": {
+          "id": "postgres_main",
+          "name": "PostgreSQL - SongLabAI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SLACK_WEBHOOK_URL }}",
+        "options": {
+          "body": {
+            "type": "json",
+            "json": "{\n  \"text\": \"📊 SongLabAI Analytics Dashboard Update\",\n  \"blocks\": [\n    {\n      \"type\": \"header\",\n      \"text\": {\n        \"type\": \"plain_text\",\n        \"text\": \"📊 SongLabAI Performance Dashboard\"\n      }\n    },\n    {\n      \"type\": \"section\",\n      \"fields\": [\n        {\n          \"type\": \"mrkdwn\",\n          \"text\": \"*🎯 Prospects Today:*\\n{{ $json.prospects.today }}\"\n        },\n        {\n          \"type\": \"mrkdwn\",\n          \"text\": \"*📧 Emails Sent:*\\n{{ $json.emails.today.sent }}\"\n        },\n        {\n          \"type\": \"mrkdwn\",\n          \"text\": \"*📅 Meetings Booked:*\\n{{ $json.meetings.today.bookings }}\"\n        },\n        {\n          \"type\": \"mrkdwn\",\n          \"text\": \"*⚡ System Health:*\\n{{ $json.kpis.overall_system_health }}\"\n        }\n      ]\n    },\n    {\n      \"type\": \"section\",\n      \"text\": {\n        \"type\": \"mrkdwn\",\n        \"text\": \"*📈 Weekly Performance:*\\n• Prospects: {{ $json.prospects.week }}\\n• Emails: {{ $json.emails.week.sent }} ({{ $json.emails.performance.open_rate }}% open rate)\\n• Meetings: {{ $json.meetings.week.bookings }}\\n• Conversion: {{ $json.kpis.contact_to_meeting_rate }}% contact-to-meeting\"\n      }\n    },\n    {\n      \"type\": \"section\",\n      \"text\": {\n        \"type\": \"mrkdwn\",\n        \"text\": \"*🚨 Active Alerts:* {{ $json.alerts.length }}{{ $json.alerts.length > 0 ? '\\n' + $json.alerts.map(alert => '• ' + alert.message).join('\\n') : '' }}\"\n      }\n    }\n  ]\n}"
+          }
+        }
+      },
+      "id": "8b9c0d1e-2f3a-4b5c-6d7e-8f9a0b1c2d3e",
+      "name": "Send Dashboard to Slack",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [900, 600]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "condition1",
+              "leftValue": "={{ $json.alerts.length }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "9c0d1e2f-3a4b-5c6d-7e8f-9a0b1c2d3e4f",
+      "name": "Check for Critical Alerts",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [900, 800]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SLACK_WEBHOOK_URL }}",
+        "options": {
+          "body": {
+            "type": "json",
+            "json": "{\n  \"text\": \"🚨 SongLabAI System Alerts\",\n  \"blocks\": [\n    {\n      \"type\": \"header\",\n      \"text\": {\n        \"type\": \"plain_text\",\n        \"text\": \"🚨 System Alerts Require Attention\"\n      }\n    },\n    {\n      \"type\": \"section\",\n      \"text\": {\n        \"type\": \"mrkdwn\",\n        \"text\": \"The following issues need immediate attention:\\n\\n{{ $json.alerts.filter(alert => alert.type === 'error').map(alert => '🔴 *' + alert.category.toUpperCase() + ':* ' + alert.message + '\\n   _Action:_ ' + alert.action).join('\\n\\n') }}{{ $json.alerts.filter(alert => alert.type === 'warning').map(alert => '🟡 *' + alert.category.toUpperCase() + ':* ' + alert.message + '\\n   _Action:_ ' + alert.action).join('\\n\\n') }}\"\n      }\n    },\n    {\n      \"type\": \"section\",\n      \"text\": {\n        \"type\": \"mrkdwn\",\n        \"text\": \"*📋 Recommendations:*\\n{{ $json.recommendations.slice(0, 3).map(rec => '• ' + rec.message).join('\\n') }}\"\n      }\n    }\n  ]\n}"
+          }
+        }
+      },
+      "id": "0d1e2f3a-4b5c-6d7e-8f9a-0b1c2d3e4f5a",
+      "name": "Send Critical Alert",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1120, 800]
+    },
+    {
+      "parameters": {
+        "jsCode": "// SongLabAI - Health Check & System Validation\n// Perform system health checks and validate all components\n\nconst dashboard = $input.first().json;\nconst timestamp = new Date();\n\n// System Health Checks\nconst healthChecks = {\n  timestamp: timestamp.toISOString(),\n  \n  // Database Health\n  database: {\n    status: 'healthy', // Will be updated based on query success\n    last_prospect: dashboard.prospects.today > 0 ? 'recent' : 'stale',\n    data_freshness: dashboard.prospects.today > 0 ? 'fresh' : 'needs_attention'\n  },\n  \n  // API Health (based on recent activity)\n  apis: {\n    google_maps: {\n      status: dashboard.prospects.sources.google_maps_today > 0 ? 'active' : 'inactive',\n      daily_usage: dashboard.prospects.sources.google_maps_today,\n      quota_status: dashboard.prospects.sources.google_maps_today < 250 ? 'healthy' : 'approaching_limit'\n    },\n    \n    calendly: {\n      status: dashboard.meetings.today.bookings >= 0 ? 'active' : 'inactive',\n      recent_bookings: dashboard.meetings.today.bookings,\n      integration_health: dashboard.meetings.matching.match_rate > 60 ? 'healthy' : 'needs_review'\n    },\n    \n    smtp: {\n      status: dashboard.emails.today.sent > 0 ? 'active' : 'inactive',\n      daily_usage: dashboard.emails.today.sent,\n      performance: dashboard.emails.performance.open_rate > 15 ? 'healthy' : 'poor'\n    }\n  },\n  \n  // Workflow Health\n  workflows: dashboard.workflows.map(workflow => ({\n    name: workflow.name,\n    status: workflow.health_status,\n    last_run: workflow.last_execution,\n    errors_24h: workflow.errors_24h,\n    recommendation: getWorkflowRecommendation(workflow)\n  })),\n  \n  // Performance Indicators\n  performance: {\n    prospect_generation_rate: dashboard.kpis.daily_prospect_velocity,\n    email_send_rate: dashboard.kpis.daily_email_velocity,\n    meeting_booking_rate: dashboard.kpis.daily_meeting_velocity,\n    overall_conversion_rate: dashboard.kpis.contact_to_meeting_rate,\n    system_efficiency: calculateSystemEfficiency(dashboard)\n  },\n  \n  // Resource Usage\n  resources: {\n    daily_api_calls_estimated: estimateApiUsage(dashboard),\n    database_growth_rate: estimateDatabaseGrowth(dashboard),\n    email_quota_usage: Math.round((dashboard.emails.today.sent / 250) * 100), // Assuming 250 daily limit\n    storage_health: 'monitoring_needed' // Would need actual storage metrics\n  },\n  \n  // Overall System Score\n  overall_health_score: calculateHealthScore(dashboard),\n  \n  // Next Maintenance Actions\n  maintenance_needed: generateMaintenanceActions(dashboard)\n};\n\n// Helper Functions\nfunction getWorkflowRecommendation(workflow) {\n  if (workflow.errors_24h > 0) return 'immediate_attention_required';\n  if (workflow.success_rate < 90) return 'investigate_failures';\n  if (workflow.avg_duration > 300) return 'optimize_performance';\n  return 'healthy';\n}\n\nfunction calculateSystemEfficiency(dashboard) {\n  const prospectEfficiency = Math.min(dashboard.prospects.today / 30, 1); // Target: 30/day\n  const emailEfficiency = Math.min(dashboard.emails.today.sent / 25, 1); // Target: 25/day\n  const meetingEfficiency = Math.min(dashboard.meetings.today.bookings / 3, 1); // Target: 3/day\n  \n  return Math.round((prospectEfficiency + emailEfficiency + meetingEfficiency) / 3 * 100);\n}\n\nfunction estimateApiUsage(dashboard) {\n  return {\n    google_maps: dashboard.prospects.sources.google_maps_today * 10, // Estimate multiple calls per prospect\n    calendly: 96, // 15-minute polling = 96 calls/day\n    linkedin: Math.floor(dashboard.prospects.sources.linkedin_today * 1.5), // Estimate\n    total_estimated: (dashboard.prospects.sources.google_maps_today * 10) + 96 + Math.floor(dashboard.prospects.sources.linkedin_today * 1.5)\n  };\n}\n\nfunction estimateDatabaseGrowth(dashboard) {\n  const dailyRows = dashboard.prospects.today + dashboard.emails.today.sent + dashboard.meetings.today.bookings;\n  return {\n    rows_added_today: dailyRows,\n    estimated_monthly_growth: dailyRows * 30,\n    storage_impact: 'low' // Most rows are small\n  };\n}\n\nfunction calculateHealthScore(dashboard) {\n  let score = 100;\n  \n  // Deduct for system issues\n  if (dashboard.kpis.overall_system_health === 'critical') score -= 30;\n  else if (dashboard.kpis.overall_system_health === 'warning') score -= 15;\n  \n  // Deduct for low performance\n  if (dashboard.emails.performance.open_rate < 15) score -= 10;\n  if (dashboard.kpis.contact_to_meeting_rate < 10) score -= 10;\n  if (dashboard.prospects.today < 10) score -= 10;\n  \n  // Deduct for active alerts\n  score -= dashboard.alerts.length * 5;\n  \n  return Math.max(score, 0);\n}\n\nfunction generateMaintenanceActions(dashboard) {\n  const actions = [];\n  \n  if (dashboard.kpis.overall_system_health === 'critical') {\n    actions.push({\n      priority: 'high',\n      action: 'Fix critical workflow errors immediately',\n      timeline: 'within_2_hours'\n    });\n  }\n  \n  if (dashboard.emails.performance.open_rate < 15) {\n    actions.push({\n      priority: 'medium',\n      action: 'Review and improve email templates and subject lines',\n      timeline: 'within_24_hours'\n    });\n  }\n  \n  if (dashboard.prospects.today < 10) {\n    actions.push({\n      priority: 'medium',\n      action: 'Check Google Maps API quotas and search parameters',\n      timeline: 'within_24_hours'\n    });\n  }\n  \n  // Regular maintenance\n  actions.push({\n    priority: 'low',\n    action: 'Archive old workflow logs and optimize database',\n    timeline: 'weekly'\n  });\n  \n  return actions;\n}\n\n// Log health check results\nconsole.log('=== System Health Check ===');\nconsole.log(`Overall Health Score: ${healthChecks.overall_health_score}/100`);\nconsole.log(`System Efficiency: ${healthChecks.performance.system_efficiency}%`);\nconsole.log(`API Usage Today: ${healthChecks.resources.daily_api_calls_estimated.total_estimated} calls`);\nconsole.log(`Maintenance Actions: ${healthChecks.maintenance_needed.length} required`);\nconsole.log('==========================');\n\nreturn [{ json: healthChecks }];"
+      },
+      "id": "1e2f3a4b-5c6d-7e8f-9a0b-1c2d3e4f5a6b",
+      "name": "System Health Check",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1120, 500]
+    },
+    {
+      "parameters": {
+        "operation": "insert",
+        "table": "workflow_logs",
+        "columns": "workflow_name,status,start_time,end_time,records_processed,records_success,context_data"
+      },
+      "id": "2f3a4b5c-6d7e-8f9a-0b1c-2d3e4f5a6b7c",
+      "name": "Log Dashboard Execution",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [1340, 500],
+      "credentials": {
+        "postgres": {
+          "id": "postgres_main",
+          "name": "PostgreSQL - SongLabAI"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "6-Hour Analytics Trigger": {
+      "main": [
+        [
+          {
+            "node": "Get Prospect Analytics",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Get Email Analytics",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Get Meeting Analytics",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Get Workflow Analytics",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Prospect Analytics": {
+      "main": [
+        [
+          {
+            "node": "Generate Dashboard",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Email Analytics": {
+      "main": [
+        [
+          {
+            "node": "Generate Dashboard",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Meeting Analytics": {
+      "main": [
+        [
+          {
+            "node": "Generate Dashboard",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Workflow Analytics": {
+      "main": [
+        [
+          {
+            "node": "Generate Dashboard",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Dashboard": {
+      "main": [
+        [
+          {
+            "node": "Update Daily Analytics",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Send Dashboard to Slack",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Check for Critical Alerts",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "System Health Check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check for Critical Alerts": {
+      "main": [
+        [
+          {
+            "node": "Send Critical Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "System Health Check": {
+      "main": [
+        [
+          {
+            "node": "Log Dashboard Execution",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": {
+      "onError": "continueRegularExecution"
+    }
+  },
+  "versionId": "1",
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "id": "monitoring-analytics-dashboard",
+  "tags": [
+    {
+      "createdAt": "2025-07-28T23:55:00.000Z",
+      "updatedAt": "2025-07-28T23:55:00.000Z",
+      "id": "monitoring",
+      "name": "monitoring"
+    },
+    {
+      "createdAt": "2025-07-28T23:55:00.000Z",
+      "updatedAt": "2025-07-28T23:55:00.000Z",
+      "id": "analytics",
+      "name": "analytics"
+    },
+    {
+      "createdAt": "2025-07-28T23:55:00.000Z",
+      "updatedAt": "2025-07-28T23:55:00.000Z",
+      "id": "dashboard",
+      "name": "dashboard"
+    }
+  ]
+}

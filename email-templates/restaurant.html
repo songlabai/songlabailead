@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Custom Jingle for {{business_name}}</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .header {
+            background: linear-gradient(135deg, #ff6b35 0%, #f7931e 100%);
+            color: white;
+            padding: 20px;
+            text-align: center;
+            border-radius: 8px 8px 0 0;
+        }
+        .content {
+            background: #fff;
+            padding: 30px;
+            border: 1px solid #ddd;
+        }
+        .cta-button {
+            display: inline-block;
+            background: #ff6b35;
+            color: white;
+            padding: 12px 25px;
+            text-decoration: none;
+            border-radius: 5px;
+            font-weight: bold;
+            margin: 15px 0;
+        }
+        .benefits {
+            background: #fff8f5;
+            padding: 20px;
+            border-left: 4px solid #ff6b35;
+            margin: 20px 0;
+        }
+        .pricing {
+            background: #fff8f5;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+            border: 2px solid #ff6b35;
+        }
+        .price-item {
+            margin-bottom: 15px;
+            padding: 10px;
+            background: white;
+            border-radius: 5px;
+            border-left: 4px solid #f7931e;
+        }
+        .footer {
+            background: #f8f9fa;
+            padding: 20px;
+            text-align: center;
+            border-radius: 0 0 8px 8px;
+            font-size: 14px;
+            color: #666;
+        }
+        .highlight {
+            color: #ff6b35;
+            font-weight: bold;
+        }
+        ul {
+            margin: 0;
+            padding-left: 20px;
+        }
+        li {
+            margin-bottom: 8px;
+        }
+        .testimonial {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 5px;
+            font-style: italic;
+            margin: 20px 0;
+            border-left: 4px solid #ff6b35;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🍽️ Make {{business_name}} Unforgettable</h1>
+        <p>The Restaurant Jingle That Customers Can't Stop Humming</p>
+    </div>
+    
+    <div class="content">
+        <p>Hi there,</p>
+        
+        <p>{{personalized_angle}}</p>
+        
+        <p>I help California restaurants create custom jingles that turn first-time visitors into regulars. When customers can't get your jingle out of their heads, <span class="highlight">they can't stop thinking about your food</span>.</p>
+        
+        <div class="benefits">
+            <h3>🎵 Here's how a custom jingle transforms {{business_name}}:</h3>
+            <ul>
+                <li><strong>🧠 Mental Stickiness:</strong> Customers remember you long after they leave</li>
+                <li><strong>📻 Radio Advertising:</strong> Stand out from generic restaurant ads</li>
+                <li><strong>📱 Social Media Gold:</strong> Shareable content that goes viral</li>
+                <li><strong>🏪 In-Store Atmosphere:</strong> Background music that reinforces your brand</li>
+                <li><strong>📞 Phone Hold Music:</strong> Keep callers engaged while they wait</li>
+                <li><strong>🎬 Video Marketing:</strong> TikTok, Instagram, and YouTube content that pops</li>
+            </ul>
+        </div>
+        
+        <div class="testimonial">
+            <p>"Our jingle increased our customer recall by 4x. Now people sing it when they think about where to eat!" - Maria's Tacos, San Diego</p>
+        </div>
+        
+        <div class="pricing">
+            <h3>🍽️ Restaurant Jingle Packages:</h3>
+            
+            <div class="price-item">
+                <strong>🎵 15-Second Commercial Jingle - $299</strong><br>
+                Perfect for radio spots and quick brand recognition<br>
+                <em>✅ Songwriting ✅ Voice-over ✅ Commercial License ✅ 4-day delivery</em>
+            </div>
+            
+            <div class="price-item" style="border-left-color: #28a745;">
+                <strong>🎬 20-Second Commercial with Video - $399 (Best Value!)</strong><br>
+                Complete video ad with jingle for social media and commercials<br>
+                <em>✅ Everything above ✅ Video production ✅ 5-day delivery</em>
+            </div>
+            
+            <div class="price-item">
+                <strong>🎪 30-Second Commercial Jingle - $499</strong><br>
+                Extended format for comprehensive brand storytelling<br>
+                <em>✅ Full production ✅ Extended creative ✅ 5-day delivery</em>
+            </div>
+            
+            <div class="price-item" style="border-left-color: #6c757d;">
+                <strong>🎤 AI-Generated Track - $99</strong><br>
+                Budget-friendly option with AI-generated music<br>
+                <em>✅ AI-generated music ✅ Commercial license ✅ Quick turnaround</em>
+            </div>
+        </div>
+        
+        <p><strong>Ready to be the restaurant customers can't stop singing about?</strong> Let's create something memorable for {{business_name}}.</p>
+        
+        <div style="text-align: center; margin: 25px 0;">
+            <a href="{{calendly_url}}?prefill_business={{business_name_encoded}}&prefill_type=restaurant" class="cta-button">📅 Book Your Flavor Session</a>
+        </div>
+        
+        <p><strong>What happens on our call?</strong></p>
+        <ol>
+            <li>20-minute consultation about your restaurant's personality and customers</li>
+            <li>Review successful restaurant jingle examples</li>
+            <li>Choose the perfect package for your budget and goals</li>
+            <li>Get started with fast 4-5 day professional production</li>
+        </ol>
+        
+        <p>{{city}}'s restaurant scene is fierce. Give {{business_name}} the musical edge that makes customers choose you over the competition.</p>
+        
+        <p>Best regards,<br>
+        <strong>{{sender_name}}</strong><br>
+        SongLabAI - Restaurant Jingle Specialist<br>
+        📧 {{sender_email}}<br>
+        📱 {{business_phone}}</p>
+        
+        <p><em>P.S. - View our site at <a href="{{business_website}}">{{business_website}}</a></em></p>
+    </div>
+    
+    <div class="footer">
+        <p><strong>SongLabAI - Custom Jingles for California Restaurants</strong></p>
+        <p>Making memorable music for memorable meals</p>
+        <p><a href="{{unsubscribe_url}}">Unsubscribe</a> | <a href="{{business_website}}">Visit Website</a></p>
+    </div>
+</body>
+</html>
