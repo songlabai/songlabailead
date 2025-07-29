@@ -45,15 +45,19 @@ RUN mkdir -p /home/node/.n8n/custom && chown -R node:node /home/node/.n8n
 COPY --chown=node:node n8n-workflows/ /home/node/.n8n/workflows/
 COPY --chown=node:node email-templates/ /home/node/.n8n/email-templates/
 
-# Switch back to node user but preserve PATH
+# Switch back to node user and ensure PATH is preserved
 USER node
+
+# Set PATH at user level to ensure it persists in Cloud Run
+ENV PATH="/usr/local/bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin:/opt/venv/bin"
 
 # Expose the port
 EXPOSE 8080
 
-# Health check
+# Health check using full path
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
   CMD curl -f http://localhost:8080/healthz || exit 1
 
-# Start n8n directly (simplified)
-CMD ["n8n", "start"]
+# Use ENTRYPOINT instead of CMD to ensure proper execution
+ENTRYPOINT ["/usr/local/bin/n8n"]
+CMD ["start"]
