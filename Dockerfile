@@ -24,17 +24,19 @@ RUN apk add --no-cache \
 
 # Create and activate virtual environment for Python packages
 RUN python3 -m venv /opt/venv
-ENV PATH="/opt/venv/bin:$PATH"
 
 # Install Python packages in virtual environment
-RUN pip install --no-cache-dir \
+RUN /opt/venv/bin/pip install --no-cache-dir \
     requests \
     beautifulsoup4 \
     pandas \
     python-dotenv
 
-# Stay as root and find n8n path
-RUN which n8n || find / -name "n8n" -type f 2>/dev/null | head -1
+# Preserve original PATH with n8n, add venv to end
+ENV PATH="/usr/local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/opt/venv/bin"
+
+# Verify n8n is accessible
+RUN which n8n && n8n --version
 
 # Create directories for custom workflows and data  
 RUN mkdir -p /home/node/.n8n/custom && chown -R node:node /home/node/.n8n
